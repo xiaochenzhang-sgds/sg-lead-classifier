@@ -334,8 +334,16 @@ def strip_venue_generic(name: str) -> str:
         'DOMO Restaurant'                        → 'DOMO'
         'Shahi Maharani North Indian Restaurant' → 'Shahi Maharani North Indian'
     """
-    s = _PAREN_RE.sub(' ', str(name or ''))
+    s = str(name or '')
+    # Split CamelCase compound brand names BEFORE any lowercasing:
+    # 'ToastBox' → 'Toast Box', 'BreadTalk' → 'Bread Talk'.
+    # Symmetric — applied to both lead and CRM sides, so exact
+    # compound-vs-compound pairs still match at 100%.
+    s = re.sub(r'([a-z])([A-Z])', r'\1 \2', s)
+    s = _PAREN_RE.sub(' ', s)
     s = _GENERIC_RE.sub(' ', s)
+    # Normalise ampersand so 'Bund & Toss' matches 'Bund and Toss'
+    s = re.sub(r'\s*&\s*', ' and ', s)
     return re.sub(r'\s+', ' ', s).strip()
 _CHINESE_RE  = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]')
 _NA_VALUES   = {"","nan","none","n/a","na","nil","-","–",
@@ -1128,8 +1136,8 @@ def classify_leads(leads_df, col_map_leads, crm_df, col_map_crm,
                                         f"prev='{best_raw}' score={best_sc:.2f}")
                 else:
                     # No CRM record at lead unit → search all at same postal
-                    # 0.90 minimum since unit is unconfirmed
-                    no_unit_min = max(p2_threshold, 0.90)
+                    # 0.85 minimum since unit is unconfirmed
+                    no_unit_min = max(p2_threshold, 0.85)
                     pool = _pool(lead_postal)
                     best_sc, best_cand_row, best_raw = 0.0, None, ""
                     for item in pool:
@@ -1142,8 +1150,8 @@ def classify_leads(leads_df, col_map_leads, crm_df, col_map_crm,
                         match_method = (f"Postal+Name [{lead_postal}] "
                                         f"score={best_sc:.2f}")
             else:
-                # Lead has no unit → postal + name only, 0.90 minimum
-                no_unit_min = max(p2_threshold, 0.90)
+                # Lead has no unit → postal + name only, 0.85 minimum
+                no_unit_min = max(p2_threshold, 0.85)
                 pool = _pool(lead_postal)
                 best_sc, best_cand_row, best_raw = 0.0, None, ""
                 for item in pool:
@@ -1459,11 +1467,11 @@ def crm_check_classify(rest_df, rest_cols, crm_df, col_map_crm,
                 tag  = f"Postal+Unit+Name [{postal} #{unit}]" if unit_matches \
                        else f"Postal+Name [{postal}]"
                 # No-unit fallback uses stricter threshold
-                min_sc = p2_threshold if unit_matches else max(p2_threshold, 0.90)
+                min_sc = p2_threshold if unit_matches else max(p2_threshold, 0.85)
             else:
                 pool   = crm_postal_all_dict.get(postal, [])
                 tag    = f"Postal+Name [{postal}] (no unit)"
-                min_sc = max(p2_threshold, 0.90)  # 0.90 minimum for no-unit
+                min_sc = max(p2_threshold, 0.85)  # 0.85 minimum for no-unit
 
             best_sc, best_cand, best_raw = 0.0, None, ""
             for item in pool:
@@ -2211,7 +2219,7 @@ def run_kpi_checks(sampled_df, apify_df, crm_df, col_map_crm,
         return round(ns, 3), raw_n, r
 
     # ── Dedup helper (excludes own GRID) ─────────────────────────
-    NO_UNIT_MIN = max(p2_threshold, 0.90)
+    NO_UNIT_MIN = max(p2_threshold, 0.85)
 
     def _find_dup(lead_grid, lead_lat, lead_pin, lead_postal, lead_unit):
         def _excl(pool):
