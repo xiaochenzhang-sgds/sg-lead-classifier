@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/32371988/README.md)
 # 🎯 Sales Ops · Lead Classifier
 **Delivery Hero / Pandora · Digital Sales APAC — Singapore**
 
