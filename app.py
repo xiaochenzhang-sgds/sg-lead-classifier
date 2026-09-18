@@ -349,6 +349,131 @@ _CHINESE_RE  = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]')
 _NA_VALUES   = {"","nan","none","n/a","na","nil","-","–",
                 "unknown","no name","na/","n.a.","n.a"}
 
+# ── SFA Licence Check helpers ────────────────────────────────────
+_SFA_ESC_RE = re.compile(r'_x([0-9A-Fa-f]{4})_')
+
+def decode_sfa_escapes(text) -> str:
+    """Decode SpreadsheetML escapes in SFA exports:
+    _x0020_ = space, _x0023_ = #, _x002C_ = ',', _x0040_ = @ …"""
+    if text is None or (isinstance(text, float) and pd.isna(text)):
+        return ""
+    return _SFA_ESC_RE.sub(lambda m: chr(int(m.group(1), 16)), str(text))
+
+
+# Legal-entity suffixes stripped before fuzzy-matching legal names.
+_LEGAL_SUFFIX_RE = re.compile(
+    r"\b(pte\.?\s*\.?\s*ltd\.?|private\s+limited|pte\.?|ltd\.?|limited|"
+    r"llp|inc\.?|corp\.?|co\.?|company)\b\.?", re.I)
+
+def norm_legal_name(name) -> str:
+    """Normalise a registered company name for fuzzy comparison.
+    'ZOUK CLARKE QUAY PTE. LTD.' → 'zouk clarke quay'
+    Handles: Pte. Ltd. / Pte Ltd / Private Limited / Co. / Corp.,
+    missing dots, and case differences."""
+    if name is None or (isinstance(name, float) and pd.isna(name)):
+        return ""
+    s = str(name).strip()
+    if s.lower() in _NA_VALUES or s.lower() == "tba":
+        return ""
+    s = s.replace(".", " ").replace(",", " ")
+    s = _LEGAL_SUFFIX_RE.sub(" ", s.lower())
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _looks_legal(name) -> bool:
+    """True if a name looks like a registered entity (has a legal suffix).
+    Guards against fuzzy-matching ordinary restaurant names vs legal names."""
+    return bool(name) and bool(_LEGAL_SUFFIX_RE.search(str(name)))
+
+
+# Extract licence number from an SFA-bank Description: sfa{MMYY}_new_{LICENCE}
+SFA_LICENCE_RE = re.compile(r"sfa\d{4}_new_([A-Za-z0-9]+)", re.I)
+
+# First-2-digits of postal → (District, Area) for the bulk lead template.
+SG_DISTRICT_AREA = {
+    1: ("Central", "Marina Bay"),
+    2: ("Central", "Marina Bay"),
+    3: ("Central", "Promenade"),
+    4: ("Central", "Clarke Quay"),
+    5: ("Central", "Chinatown"),
+    6: ("Central", "Tanjong Pagar"),
+    7: ("Central", "Tanjong Pagar"),
+    8: ("Central", "Tanjong Pagar"),
+    9: ("Outer Central", "Telok Blangah"),
+    10: ("Outer Central", "Pasir Panjang"),
+    11: ("Outer Central", "Pasir Panjang"),
+    12: ("West", "Clementi"),
+    13: ("Outer Central", "Buona Vista"),
+    14: ("Central", "Queenstown"),
+    15: ("Central", "Queenstown"),
+    16: ("Central", "Tiong Bahru"),
+    17: ("Central", "Bugis/City Hall"),
+    18: ("Central", "Bugis/City Hall"),
+    19: ("Central", "Arab Street"),
+    20: ("Central", "Farrer Park"),
+    21: ("Central", "Farrer Park"),
+    22: ("Central", "Newton"),
+    23: ("Central", "River Valley"),
+    24: ("Central", "Dempsey"),
+    25: ("Central", "Tanglin"),
+    26: ("West", "Bukit Timah"),
+    27: ("Outer Central", "Holland Village"),
+    28: ("Outer Central", "Bukit Timah"),
+    29: ("Central", "Newton"),
+    30: ("Central", "Novena"),
+    31: ("North", "Toa Payoh"),
+    32: ("Central", "Novena"),
+    33: ("Central", "Kallang/Boon Keng"),
+    34: ("East", "MacPherson"),
+    35: ("East", "MacPherson"),
+    36: ("East", "MacPherson"),
+    37: ("East", "MacPherson"),
+    38: ("East", "Paya Lebar"),
+    39: ("East", "Mountbatten"),
+    40: ("East", "Paya Lebar"),
+    41: ("East", "Paya Lebar"),
+    42: ("East", "Katong"),
+    43: ("East", "Katong"),
+    44: ("East", "Katong"),
+    45: ("East", "Upper East Coast"),
+    46: ("East", "Bedok"),
+    47: ("East", "Bedok Reservoir"),
+    48: ("East", "Simei"),
+    49: ("East", "Changi Village"),
+    50: ("East", "Changi Village"),
+    51: ("East", "Pasir Ris East"),
+    52: ("East", "Tampines"),
+    53: ("North", "Hougang"),
+    54: ("North", "Sengkang"),
+    55: ("North", "Serangoon"),
+    56: ("North", "Ang Mo Kio"),
+    57: ("North", "Bishan"),
+    58: ("West", "Beauty World"),
+    59: ("West", "Beauty World"),
+    60: ("West", "Jurong East"),
+    61: ("West", "Jurong South"),
+    62: ("West", "Pioneer"),
+    63: ("West", "Tuas"),
+    64: ("West", "Jurong West"),
+    65: ("West", "Bukit Batok"),
+    66: ("West", "Bukit Panjang"),
+    67: ("West", "Bukit Panjang"),
+    68: ("North", "Choa Chu Kang"),
+    69: ("North", "Lim Chu Kang"),
+    71: ("North", "Lim Chu Kang"),
+    72: ("North", "Sungei Kadut"),
+    73: ("North", "Woodlands"),
+    75: ("North", "Sembawang"),
+    76: ("North", "Yishun"),
+    77: ("North", "Singapore Zoo"),
+    78: ("North", "Yishun"),
+    79: ("North", "Jalan Kayu"),
+    80: ("North", "Jalan Kayu"),
+    81: ("East", "Changi Airport"),
+    82: ("North", "Punggol"),
+}
+
+
 
 def extract_sg_unit(text: str) -> str:
     if not text or str(text).strip() in ("","nan"):
@@ -711,6 +836,8 @@ def load_leads(file_bytes: bytes, filename: str, market_cfg: dict):
     col_map["zip"]     = detect_column(df, ["Zip/Postal Code","Restaurant PostalCode",
                                              "Zip","postal_code","PostalCode",
                                              "Postal Code","邮编"])
+    col_map["legal"]   = detect_column(df, ["Legal Name","Legal_Name__c","LegalName"])
+    col_map["desc"]    = detect_column(df, ["Description","description"])
     return df, col_map
 
 
@@ -720,6 +847,7 @@ def load_crm(file_bytes: bytes, filename: str, market_cfg: dict):
     col_map = {}
     col_map["grid"]   = detect_column(df, ["GRID__c","GRID","Grid"])
     col_map["name"]   = detect_column(df, ["Account Name","Name","name"])
+    col_map["legal"]  = detect_column(df, ["Legal Name","Legal_Name__c","LegalName"])
     col_map["phone"]  = detect_column(df, ["Phone","phone"])
     col_map["status"] = detect_column(df, ["Account_Status__c","Account Status",
                                             "AccountStatus"])
@@ -989,11 +1117,13 @@ def classify_leads(leads_df, col_map_leads, crm_df, col_map_crm,
         postal_c = col_map_crm.get("postal")
         addr_c   = col_map_crm.get("street")
         name_c_  = col_map_crm.get("name")
+        legal_c_ = col_map_crm.get("legal")
 
         for _, r in crm_df.iterrows():
             raw_n         = str(r.get(name_c_,"") or "") if name_c_ else ""
             lat_n, pin_n  = norm_name_sg(strip_venue_generic(raw_n), char_map)
-            item          = (raw_n, lat_n, pin_n, r)
+            legal_n       = norm_legal_name(r.get(legal_c_,"")) if legal_c_ else ""
+            item          = (raw_n, lat_n, pin_n, legal_n, r)
             all_crm_items.append(item)
 
             postal_raw = _norm_postal_input(r.get(postal_c,"") if postal_c else "")
@@ -1025,6 +1155,8 @@ def classify_leads(leads_df, col_map_leads, crm_df, col_map_crm,
     lng_col_l    = col_map_leads.get("lng")
     grid_col_l   = col_map_leads.get("grid")
     lead_id_col  = col_map_leads.get("lead_id")
+    legal_col_l  = col_map_leads.get("legal")
+    desc_col_l   = col_map_leads.get("desc")
     zip_col_l    = col_map_leads.get("zip")
     reason_col_c = col_map_crm.get("reason") if col_map_crm else None
 
@@ -1037,12 +1169,13 @@ def classify_leads(leads_df, col_map_leads, crm_df, col_map_crm,
     _n_total        = len(leads_df)
 
     # ── Scoring helper (defined ONCE — not recreated per lead) ────
-    def _score(lead_lat_n, lead_pin_n, item):
+    def _score(lead_lat_n, lead_pin_n, lead_legal_n, item):
         """Score a pre-normalised CRM item against a lead.
         Returns (score, crm_raw, crm_row).
-        Uses pre-computed lat_n / pin_n — avoids re-normalising on
-        every comparison (critical for 100k+ CRM accounts)."""
-        raw_n, lat_n, pin_n, r = item
+        Channels: restaurant name (latin + pinyin) AND registered
+        legal name (SFA leads where Company holds the licensee).
+        Final score = max of all channels."""
+        raw_n, lat_n, pin_n, legal_n, r = item
         ns = 0.0
         if lead_lat_n and lat_n:
             ns = max(fuzz.token_sort_ratio(lead_lat_n, lat_n),
@@ -1052,7 +1185,11 @@ def classify_leads(leads_df, col_map_leads, crm_df, col_map_crm,
             if lp and cp:
                 ps = max(fuzz.token_sort_ratio(lp, cp),
                          fuzz.token_set_ratio(lp,  cp)) / 100.0
-                return round(max(ns, ps), 3), raw_n, r
+                ns = max(ns, ps)
+        if lead_legal_n and legal_n:
+            ls = max(fuzz.token_sort_ratio(lead_legal_n, legal_n),
+                     fuzz.token_set_ratio(lead_legal_n,  legal_n)) / 100.0
+            ns = max(ns, ls)
         return round(ns, 3), raw_n, r
 
     def _pool(postal):
@@ -1079,6 +1216,18 @@ def classify_leads(leads_df, col_map_leads, crm_df, col_map_crm,
                        or extract_sg_postal(lead_street))
         lead_unit   = extract_sg_unit(lead_street)
         lead_lat_n, lead_pin_n = norm_name_sg(strip_venue_generic(lead_name_raw), char_map)
+
+        # Legal-name channel (SFA leads): use the Legal Name column,
+        # or Company when it holds the licensee (TBA-name case).
+        # Only names bearing a legal suffix qualify — prevents ordinary
+        # restaurant names from fuzzy-matching CRM legal names.
+        _lead_legal_src = str(row.get(legal_col_l,"") or "") if legal_col_l else ""
+        if _looks_legal(_lead_legal_src):
+            lead_legal_n = norm_legal_name(_lead_legal_src)
+        elif _looks_legal(lead_name_raw):
+            lead_legal_n = norm_legal_name(lead_name_raw)
+        else:
+            lead_legal_n = ""
         lead_blank  = is_blank_name(lead_name_raw)
         lead_grid   = str(row.get(grid_col_l,"") or "").strip() if grid_col_l else ""
 
@@ -1117,7 +1266,7 @@ def classify_leads(leads_df, col_map_leads, crm_df, col_map_crm,
                 if unit_matches:
                     best_sc, best_cand_row, best_raw = 0.0, None, ""
                     for item in unit_matches:
-                        sc, crm_raw, cand_row = _score(lead_lat_n, lead_pin_n, item)
+                        sc, crm_raw, cand_row = _score(lead_lat_n, lead_pin_n, lead_legal_n, item)
                         if sc > best_sc:
                             best_sc, best_cand_row, best_raw = sc, cand_row, crm_raw
 
@@ -1141,7 +1290,7 @@ def classify_leads(leads_df, col_map_leads, crm_df, col_map_crm,
                     pool = _pool(lead_postal)
                     best_sc, best_cand_row, best_raw = 0.0, None, ""
                     for item in pool:
-                        sc, crm_raw, cand_row = _score(lead_lat_n, lead_pin_n, item)
+                        sc, crm_raw, cand_row = _score(lead_lat_n, lead_pin_n, lead_legal_n, item)
                         if sc > best_sc:
                             best_sc, best_cand_row, best_raw = sc, cand_row, crm_raw
                     if best_cand_row is not None and best_sc >= no_unit_min:
@@ -1155,7 +1304,7 @@ def classify_leads(leads_df, col_map_leads, crm_df, col_map_crm,
                 pool = _pool(lead_postal)
                 best_sc, best_cand_row, best_raw = 0.0, None, ""
                 for item in pool:
-                    sc, crm_raw, cand_row = _score(lead_lat_n, lead_pin_n, item)
+                    sc, crm_raw, cand_row = _score(lead_lat_n, lead_pin_n, lead_legal_n, item)
                     if sc > best_sc:
                         best_sc, best_cand_row, best_raw = sc, cand_row, crm_raw
                 if best_cand_row is not None and best_sc >= no_unit_min:
@@ -1207,7 +1356,7 @@ def classify_leads(leads_df, col_map_leads, crm_df, col_map_crm,
             best_sc, best_cand  = 0.0, None
 
             for item in all_crm_items:
-                sc, _, cand_row = _score(lead_lat_n, lead_pin_n, item)
+                sc, _, cand_row = _score(lead_lat_n, lead_pin_n, lead_legal_n, item)
                 if sc < NAME_ONLY_THRESHOLD or sc <= best_sc:
                     continue
                 addr_raw_c = str(cand_row.get(_crm_street_col,"") or "")
@@ -1281,7 +1430,15 @@ def classify_leads(leads_df, col_map_leads, crm_df, col_map_crm,
         else:
             gm_biz_status = "Not Found on Google"
             match_reason  = "No Apify result"
-            if not label: label = "P2 — Please Check"
+            if not label:
+                _desc = str(row.get(desc_col_l,"") or "") if desc_col_l else ""
+                if _desc.lower().startswith("sfa"):
+                    # SFA-origin lead with no Google listing yet —
+                    # likely not open; expected, not suspicious.
+                    label        = "Too New — Recheck Next Month"
+                    match_reason = "SFA lead — no Google listing yet"
+                else:
+                    label = "P2 — Please Check"
 
         # ── Zone check ─────────────────────────────────────────────
         zone_status = zone_name = zone_city = zone_method = ""
@@ -1640,18 +1797,19 @@ def build_excel(df: pd.DataFrame, market_name: str):
     FILLS = {
         "P1 — New":            PatternFill("solid", start_color="C6EFCE"),
         "P2 — Please Check":   PatternFill("solid", start_color="ECECEC"),
+        "Too New — Recheck Next Month": PatternFill("solid", start_color="DBEAFE"),
         "P3 — Potential Match":PatternFill("solid", start_color="FFF2CC"),
         "P4 — Duplicate":      PatternFill("solid", start_color="FFC7CE"),
         "Business Closed":     PatternFill("solid", start_color="FFEB9C"),
         "Wrong Target Group":  PatternFill("solid", start_color="FFDCA8"),
     }
     ALT = {k: PatternFill("solid", start_color=
-           {"P1 — New":"EBF7EB","P2 — Please Check":"F7F7F7",
+           {"P1 — New":"EBF7EB","P2 — Please Check":"F7F7F7","Too New — Recheck Next Month":"EFF6FF",
             "P3 — Potential Match":"FFFAE0","P4 — Duplicate":"FFE0E0",
             "Business Closed":"FFF7D1","Wrong Target Group":"FFF0DC"}.get(k,"FFFFFF"))
            for k in FILLS}
     FONT_C = {
-        "P1 — New":"276221","P2 — Please Check":"595959",
+        "P1 — New":"276221","P2 — Please Check":"595959","Too New — Recheck Next Month":"1E40AF",
         "P3 — Potential Match":"7D5A00","P4 — Duplicate":"9C0006",
         "Business Closed":"7D4E00","Wrong Target Group":"833C00",
     }
@@ -1699,6 +1857,7 @@ def build_excel(df: pd.DataFrame, market_name: str):
     labels_order = [
         "P1 — New", "P3 — Potential Match", "P4 — Duplicate",
         "Business Closed", "Wrong Target Group", "P2 — Please Check",
+        "Too New — Recheck Next Month",
     ]
     col_headers = [
         # ── A–F: Agent workflow columns (blank on export, filled by agents) ──
@@ -1966,7 +2125,11 @@ def build_excel(df: pd.DataFrame, market_name: str):
              "GM Title","GM Category","GM Business Status",
              "Match Confidence","Match Reason","GM URL"]
     _mini_sheet(wb, "⚪ P2 — Please Check", "595959",
-                lambda d: d["Label"] == "P2 — Please Check",
+                lambda d: d["Label"].isin(["P2 — Please Check",
+                                            "Too New — Recheck Next Month"])
+                          if hasattr(d["Label"], "isin")
+                          else d["Label"] in ("P2 — Please Check",
+                                               "Too New — Recheck Next Month"),
                 chk_h, [10,18,32,12,36,28,24,18,14,38,48],
                 "⚪ P2 — Please Check")
 
@@ -2823,12 +2986,13 @@ def main():
         st.info("👈 Select a market from the sidebar to get started.")
         return
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📊 Classify Leads",
         "🔗 Generate Apify URLs",
         "🏢 SF Account Audit",
         "🔍 CRM Check",
         "📋 KPI Sample Checker",
+        "🏛️ SFA Licence Check",
         "📖 How to Use",
     ])
 
@@ -2983,7 +3147,9 @@ def main():
             m[2].metric("🟡 P3 Potential",     counts.get("P3 — Potential Match", 0))
             m[3].metric("🏢 Business Closed",  counts.get("Business Closed", 0))
             m[4].metric("❌ Wrong Target",     counts.get("Wrong Target Group", 0))
-            m[5].metric("⚪ Please Check",     counts.get("P2 — Please Check", 0))
+            m[5].metric("⚪ Check / Too New",
+                        counts.get("P2 — Please Check", 0)
+                        + counts.get("Too New — Recheck Next Month", 0))
 
             # Per-priority tabs
             label_tabs = st.tabs([
@@ -2993,7 +3159,7 @@ def main():
                 f"🟡 P3 Potential ({counts.get('P3 — Potential Match',0)})",
                 f"🏢 Closed ({counts.get('Business Closed',0)})",
                 f"❌ Wrong TG ({counts.get('Wrong Target Group',0)})",
-                f"⚪ Please Check ({counts.get('P2 — Please Check',0)})",
+                f"⚪ Check/Too New ({counts.get('P2 — Please Check',0) + counts.get('Too New — Recheck Next Month',0)})",
             ])
 
             LABEL_STYLE = {
@@ -3003,6 +3169,7 @@ def main():
                 "Business Closed":     "background-color:#ffeb9c",
                 "Wrong Target Group":  "background-color:#ffdca8",
                 "P2 — Please Check":   "background-color:#e2e3e5",
+                "Too New — Recheck Next Month": "background-color:#dbeafe",
             }
             def _style(row):
                 return [LABEL_STYLE.get(row["Label"],"")] * len(row)
@@ -3016,7 +3183,7 @@ def main():
             with label_tabs[3]: _show(result_df[result_df["Label"] == "P3 — Potential Match"])
             with label_tabs[4]: _show(result_df[result_df["Label"] == "Business Closed"])
             with label_tabs[5]: _show(result_df[result_df["Label"] == "Wrong Target Group"])
-            with label_tabs[6]: _show(result_df[result_df["Label"] == "P2 — Please Check"])
+            with label_tabs[6]: _show(result_df[result_df["Label"].isin(["P2 — Please Check","Too New — Recheck Next Month"])])
 
             excel_buf = build_excel(result_df, f"{market_cfg['flag']} {market_cfg['name']}")
             st.download_button(
@@ -3828,9 +3995,214 @@ def main():
             st.info("Upload CRM All Accounts and Account Details report to run checks.")
 
     # ════════════════════════════════════════════════════════════════
-    # TAB 6 — HOW TO USE
+    # TAB 6 — SFA LICENCE CHECK
     # ════════════════════════════════════════════════════════════════
-    with tab6:  # How to Use
+    with tab6:
+        st.subheader("🏛️ SFA Licence Check")
+        st.caption("Monthly: new SFA restaurant licences → eliminate previously "
+                   "checked → generate the Bulk Lead Creation CSV for Salesforce.")
+
+        # ── Step 1 ────────────────────────────────────────────────
+        st.markdown("**Step 1 · Download new licences from SFA**")
+        st.link_button(
+            "Open SFA Track Records →",
+            "https://www.sfa.gov.sg/tools-and-resources/track-records"
+            "?postalCode=&establishmentAddress=&licenceNumber=&businessName="
+            "&licenseeName=&typeOfFoodBussiness=Restaurant"
+            "&isShowLicenceSuspended=false&grades=New")
+        st.caption("On the SFA page set **Type of Food Business = Restaurant** "
+                   "and **Grade = New**, then export the result.")
+        sfa_up = st.file_uploader(
+            "Upload SFA export (.xlsx or .csv)",
+            type=["xlsx","xls","csv"], key="sfa_export")
+
+        sfa_df = None
+        sfa_lic_c = None
+        if sfa_up:
+            try:
+                sfa_raw = _cached_read(sfa_up.read(), sfa_up.name).copy()
+                # Decode SpreadsheetML escapes (_x0020_ = space etc.)
+                sfa_raw.columns = [decode_sfa_escapes(c).strip()
+                                   for c in sfa_raw.columns]
+                for c in sfa_raw.columns:
+                    # pandas may type text columns as object OR the new
+                    # 'str'/'string' dtype — decode all non-numeric columns
+                    if not pd.api.types.is_numeric_dtype(sfa_raw[c]):
+                        sfa_raw[c] = sfa_raw[c].apply(decode_sfa_escapes)
+                sfa_lic_c = detect_column(sfa_raw,
+                                          ["Licence Number","License Number"])
+                if not sfa_lic_c:
+                    st.error("Could not find a **Licence Number** column "
+                             "in the SFA file.")
+                else:
+                    sfa_raw = sfa_raw[
+                        sfa_raw[sfa_lic_c].notna()
+                        & sfa_raw[sfa_lic_c].astype(str).str.strip().ne("")
+                        & ~sfa_raw[sfa_lic_c].astype(str).str.lower()
+                              .isin(["nan","none"])].copy()
+                    sfa_raw[sfa_lic_c] = (sfa_raw[sfa_lic_c].astype(str)
+                                          .str.strip())
+                    before  = len(sfa_raw)
+                    sfa_raw = sfa_raw.drop_duplicates(
+                        subset=[sfa_lic_c]).reset_index(drop=True)
+                    sfa_df  = sfa_raw
+                    dup_msg = (f" ({before-len(sfa_df)} duplicate licence "
+                               f"rows removed)" if before > len(sfa_df) else "")
+                    st.success(f"SFA licences loaded: {len(sfa_df):,}{dup_msg}")
+                    with st.expander("Preview first 20 rows"):
+                        st.dataframe(sfa_df.head(20), use_container_width=True)
+            except Exception as e:
+                st.error(f"SFA file error: {e}")
+
+        # ── Step 2 ────────────────────────────────────────────────
+        st.divider()
+        st.markdown("**Step 2 · Eliminate previously checked (SFA Bank)**")
+        st.caption("Export the SFA Bank report from Salesforce — the "
+                   "**Description** field holds `sfaMMYY_new_LICENCE`.")
+        bank_up = st.file_uploader(
+            "Upload SFA Bank report (.csv / .xlsx / .xls)",
+            type=["csv","xlsx","xls"], key="sfa_bank")
+
+        nett_df = None
+        if sfa_df is not None and bank_up:
+            try:
+                bank_raw = _cached_read(bank_up.read(), bank_up.name)
+                fc = bank_raw.columns[0]
+                bank_raw = bank_raw[~bank_raw[fc].astype(str).str.lower()
+                    .str.contains("confidential|copyright", na=False)]
+                desc_c = detect_column(bank_raw, ["Description","description"])
+                if not desc_c:
+                    st.error("Could not find a **Description** column "
+                             "in the SFA Bank report.")
+                else:
+                    bank_lics = set()
+                    for v in bank_raw[desc_c].dropna().astype(str):
+                        for lic in SFA_LICENCE_RE.findall(v):
+                            bank_lics.add(lic.upper())
+                    in_bank = (sfa_df[sfa_lic_c].str.upper()
+                               .isin(bank_lics))
+                    nett_df = sfa_df[~in_bank].reset_index(drop=True)
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("SFA licences scraped", f"{len(sfa_df):,}")
+                    c2.metric("Already in bank",      f"{int(in_bank.sum()):,}")
+                    c3.metric("✅ Nett new",          f"{len(nett_df):,}")
+            except Exception as e:
+                st.error(f"SFA Bank error: {e}")
+        elif sfa_df is not None:
+            st.info("Upload the SFA Bank report to filter out "
+                    "previously checked licences.")
+
+        # ── Step 3 ────────────────────────────────────────────────
+        st.divider()
+        st.markdown("**Step 3 · Generate Bulk Lead Creation CSV**")
+        so1, so2 = st.columns(2)
+        sfa_owner = so1.text_input("Lead Owner (SF ID)",
+                                   value="0056900000BJprkAAD", key="sfa_owner")
+        sfa_cat   = so2.text_input("Default Category",
+                                   value="Chinese", key="sfa_cat")
+
+        if nett_df is not None and len(nett_df) > 0:
+            lsn_c  = detect_column(nett_df, ["Licensee Name"])
+            bn_c   = detect_column(nett_df, ["Business Name"])
+            addr_c = detect_column(nett_df, ["Establishment Address","Address"])
+            mmyy   = pd.Timestamp.now().strftime("%m%y")
+
+            rows = []
+            for _, r in nett_df.iterrows():
+                licence  = str(r.get(sfa_lic_c,"") or "").strip()
+                licensee = str(r.get(lsn_c,"") or "").strip() if lsn_c else ""
+                bname    = str(r.get(bn_c,"")  or "").strip() if bn_c  else ""
+                addr     = str(r.get(addr_c,"") or "").strip() if addr_c else ""
+                if bname.lower() in ("","na","nan","none","-"):
+                    bname = ""
+                postal = extract_sg_postal(addr)
+                dist = area = ""
+                if postal:
+                    try:
+                        dist, area = SG_DISTRICT_AREA.get(
+                            int(postal[:2]), ("",""))
+                    except Exception:
+                        pass
+                rows.append({
+                    "Platform": "foodpanda",
+                    "Lead Owner": sfa_owner,
+                    "GRID": "",
+                    "Lead Record Type": "FP Lead",
+                    "Company": bname or licensee,
+                    "Legal Name": licensee,
+                    "Lead Country": "Singapore",
+                    "Lead Source": "Import",
+                    "Lead Source Category": "",
+                    "Salutation": "", "First Name": "", "Middle Name": "",
+                    "Last Name": "TBA",
+                    "Lead Status": "New",
+                    "Duplicate ID": "", "Lost Reason": "",
+                    "Lost Reason Description": "", "Competitor": "",
+                    "External Rating": 1, "Facebook Likes": 1,
+                    "Number of Reviews": 1,
+                    "Social Media URL": "", "Website": "",
+                    "Lead Data Origin": "sfa",
+                    "Key Account": "", "Key Account Sub Category": "",
+                    "Target Partner": "Basic Lead",
+                    "Vendor Grade": "",
+                    "Number of Outlets Per Chain": 1,
+                    "Price Range": "$$",
+                    "Delivery Service": "DH Delivery;Take away",
+                    "Description": f"sfa{mmyy}_new_{licence}",
+                    "Special Characteristics": "",
+                    "Phone": "6560000000", "Mobile Phone": "6590000000",
+                    "Email": "",
+                    "Vertical": "Restaurant",
+                    "Vertical Segment": "Regular Restaurant",
+                    "Category": sfa_cat,
+                    "State/ Province": "Singapore", "City": "Singapore",
+                    "District": dist, "Area": area,
+                    "Street": addr,
+                    "Zip/Postal Code": postal,
+                    "Coordinates": "",
+                    "Revenue Model": "Ordering Platform",
+                    "Business Status": "", "Mark for Testing/Training": "",
+                    "Opening Hours": "", "Total Available SKU's": "",
+                })
+            bulk_df = pd.DataFrame(rows)
+            n_nopost = int((bulk_df["Zip/Postal Code"] == "").sum())
+            if n_nopost:
+                st.warning(f"{n_nopost} row(s) have no postal extracted "
+                           "from the address — review before uploading.")
+            with st.expander("Preview generated leads (first 10)"):
+                st.dataframe(bulk_df.head(10), use_container_width=True)
+            bulk_buf = io.StringIO()
+            bulk_df.to_csv(bulk_buf, index=False)
+            st.download_button(
+                "⬇ Download Bulk Lead Creation CSV",
+                bulk_buf.getvalue(),
+                f"SFA_BulkUpload_{pd.Timestamp.now().strftime('%d%m%y')}.csv",
+                mime="text/csv", use_container_width=True, type="primary")
+        elif nett_df is not None:
+            st.success("No nett-new licences this month — "
+                       "everything already checked. 🎉")
+
+        # ── Step 4 ────────────────────────────────────────────────
+        st.divider()
+        st.markdown("**Step 4 · Upload to Salesforce, then classify**")
+        st.info(
+            "1. Upload the CSV into Salesforce via your bulk lead import — "
+            "this is what grows the SFA Bank\n"
+            "2. Download the created leads from Salesforce — report must "
+            "include **GRID, Company, Legal Name, Description, Street, "
+            "Zip/Postal Code**\n"
+            "3. Go to **🔗 Generate Apify URLs** → generate URLs → run Apify\n"
+            "4. Go to **📊 Classify Leads** → upload leads + Apify + CRM "
+            "(CRM report must include the **Legal Name** column)\n"
+            "5. SFA leads with no Google listing yet come back as "
+            "**Too New — Recheck Next Month** instead of P2 — "
+            "re-run them in next month's batch"
+        )
+
+    # ════════════════════════════════════════════════════════════════
+    # TAB 7 — HOW TO USE
+    # ════════════════════════════════════════════════════════════════
+    with tab7:  # How to Use
         st.markdown("""
 ## 📖 How to Use the Lead Classifier
 
@@ -3939,6 +4311,35 @@ Find suspected duplicate accounts within Salesforce itself. Run monthly for CRM 
         """)
 
 
+
+        st.markdown("""
+---
+
+## 🏛️ SFA Licence Check (monthly)
+
+Turn new SFA restaurant licences into Salesforce leads — without re-checking
+licences you've already processed.
+
+1. **Download** the new licences from the SFA Track Records page
+   (Type of Food Business = *Restaurant*, Grade = *New*) — link is in the tab
+2. **Upload the SFA export** — the tool decodes the file and de-duplicates licences
+3. **Upload the SFA Bank report** — licences already in a lead's `Description`
+   (`sfaMMYY_new_LICENCE`) are removed; the remainder is **nett new**
+4. **Generate the Bulk Lead Creation CSV** — Company falls back to the
+   Licensee name when the restaurant has no Business Name yet; postal,
+   District and Area are auto-filled; Description is stamped with the
+   current month
+5. **Upload into Salesforce**, then download the created leads (with GRID)
+   and run them through *Generate Apify URLs* → *Classify Leads*
+
+**Notes for SFA leads in the classifier**
+- The CRM report should include a **Legal Name** column — the classifier
+  fuzzy-matches registered company names (Pte. Ltd. / Private Limited /
+  missing dots / case differences are all normalised)
+- SFA leads with **no Google Maps listing yet** are labelled
+  **Too New — Recheck Next Month** instead of P2 — the restaurant most
+  likely hasn't opened; include them again in next month's run
+""")
 
 if __name__ == "__main__":
     main()
