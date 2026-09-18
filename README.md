@@ -1,3 +1,4 @@
+[README.md](https://github.com/user-attachments/files/32371988/README.md)
 # 🎯 Sales Ops · Lead Classifier
 **Delivery Hero / Pandora · Digital Sales APAC — Singapore**
 
@@ -182,3 +183,23 @@ streamlit run app.py
 ---
 
 *Internal tool · Sales Ops · Digital Sales APAC · Delivery Hero / Pandora*
+
+
+## 🏛️ SFA Licence Check (Tab 6)
+
+Monthly workflow that converts new SFA restaurant licences into Salesforce leads:
+
+1. **Download** new licences from SFA Track Records (Type = Restaurant, Grade = New)
+2. **Upload the SFA export** — SpreadsheetML escapes (`_x0020_` etc.) decoded automatically, licences de-duplicated
+3. **Upload the SFA Bank report** — leads whose `Description` matches `sfaMMYY_new_LICENCE` are already checked and get removed; remainder = nett new
+4. **Generate the Bulk Lead Creation CSV** (51 columns, matches the SGDS template):
+   - `Company` = Business Name, falling back to Licensee Name when the restaurant has no name yet
+   - `Legal Name` = Licensee Name
+   - `Description` = `sfa{MMYY}_new_{LICENCE}` stamped with the generation month
+   - Postal extracted from the address; District/Area auto-filled from the built-in first-2-digit lookup
+   - Lead Owner and Category editable in the UI (defaults: `0056900000BJprkAAD`, `Chinese`)
+5. **Upload to Salesforce** → download the created leads (with GRID) → *Generate Apify URLs* → *Classify Leads*
+
+### Classifier behaviour for SFA leads
+- **Legal-name matching**: include a **Legal Name** column in the CRM All Accounts report. The classifier fuzzy-matches registered company names with suffix normalisation (`Pte. Ltd.` / `Pte Ltd` / `Private Limited` / `Co.` / `Corp.`, dots, case) at the same 0.85 gate. Restaurant-style names never match against legal names — only names carrying a legal suffix use this channel.
+- **Too New label**: an SFA-origin lead (Description starts with `sfa`) with no Apify result is labelled **Too New — Recheck Next Month** instead of P2 — the restaurant likely hasn't opened yet. These rows sit in the P2 sheet of the Excel export with their own colour.
