@@ -4152,7 +4152,7 @@ def main():
                     "Delivery Service": "DH Delivery;Take away",
                     "Description": f"sfa{mmyy}_new_{licence}",
                     "Special Characteristics": "",
-                    "Phone": "6560000000", "Mobile Phone": "6590000000",
+                    "Phone": "+6560000000", "Mobile Phone": "+6590000000",
                     "Email": "",
                     "Vertical": "Restaurant",
                     "Vertical Segment": "Regular Restaurant",
@@ -4189,7 +4189,10 @@ def main():
         st.markdown("**Step 4 · Upload to Salesforce, then classify**")
         st.info(
             "1. Upload the CSV into Salesforce via your bulk lead import — "
-            "this is what grows the SFA Bank\n"
+            "this is what grows the SFA Bank. Upload the downloaded file "
+            "as-is; if you open it in Excel and re-save, Excel can strip "
+            "the `+` from the phone numbers and Salesforce will reject "
+            "the rows\n"
             "2. Download the created leads from Salesforce — report must "
             "include **GRID, Company, Legal Name, Description, Street, "
             "Zip/Postal Code**\n"
